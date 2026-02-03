@@ -570,14 +570,16 @@ def show_menu() -> str:
     console.print()
     console.print("[bold yellow]═══ MENU PRINCIPAL ═══[/bold yellow]")
     console.print()
-    console.print("  [bold green]1.[/bold green] Converter arquivo de dump")
-    console.print("  [bold green]2.[/bold green] Ver estatísticas de arquivo")
-    console.print("  [bold green]3.[/bold green] Configurações recomendadas para RAG")
-    console.print("  [bold green]4.[/bold green] Ajuda")
+    console.print("  [bold green]1.[/bold green] Converter arquivo (único)")
+    console.print("  [bold green]2.[/bold green] Converter arquivo (múltiplos por tipo)")
+    console.print("  [bold green]3.[/bold green] Converter arquivo (múltiplos por módulo)")
+    console.print("  [bold green]4.[/bold green] Ver estatísticas de arquivo")
+    console.print("  [bold green]5.[/bold green] Configurações recomendadas para RAG")
+    console.print("  [bold green]6.[/bold green] Ajuda")
     console.print("  [bold red]0.[/bold red] Sair")
     console.print()
     
-    choice = Prompt.ask("[bold cyan]Escolha uma opção[/bold cyan]", choices=["0", "1", "2", "3", "4"], default="1")
+    choice = Prompt.ask("[bold cyan]Escolha uma opção[/bold cyan]", choices=["0", "1", "2", "3", "4", "5", "6"], default="1")
     return choice
 
 
@@ -661,8 +663,8 @@ def convert_file():
     formatter = RagFormatter()
     output = formatter.format_all(tables, functions, procedures)
     
-    # Salvar (ANSI/Windows-1252 para compatibilidade)
-    with open(output_file, 'w', encoding='windows-1252') as f:
+    # Salvar em UTF-8 (recomendado para RAG/Open Arena)
+    with open(output_file, 'w', encoding='utf-8') as f:
         f.write(output)
     
     # Estatísticas
@@ -673,7 +675,7 @@ def convert_file():
 def show_result_stats(input_file: str, output_file: str, tables: dict, functions: dict, procedures: dict, output: str):
     """Exibe estatísticas do resultado."""
     input_size = os.path.getsize(input_file) / (1024 * 1024)
-    output_size = len(output.encode('windows-1252', errors='replace')) / (1024 * 1024)
+    output_size = len(output.encode('utf-8')) / (1024 * 1024)
     reduction = (1 - output_size / input_size) * 100 if input_size > 0 else 0
     
     stats_table = RichTable.grid(padding=1)
@@ -706,6 +708,159 @@ def show_result_stats(input_file: str, output_file: str, tables: dict, functions
         border_style="green"
     )
     console.print(panel)
+
+
+def convert_file_by_type():
+    """Converte arquivo gerando múltiplos arquivos por tipo."""
+    input_file = get_input_file()
+    if not input_file:
+        return
+    
+    # Pasta de saída
+    output_dir = Prompt.ask(
+        "[bold cyan]Pasta de saída[/bold cyan]",
+        default="output_por_tipo"
+    )
+    
+    os.makedirs(output_dir, exist_ok=True)
+    
+    console.print()
+    console.print("[bold yellow]═══ PROCESSANDO ═══[/bold yellow]")
+    console.print()
+    
+    # Parsear
+    parser = DumpParser(console)
+    tables = parser.parse_file(input_file)
+    functions = parser.functions
+    procedures = parser.procedures
+    
+    formatter = RagFormatter()
+    files_created = []
+    
+    # Arquivo de tabelas
+    if tables:
+        output = formatter.format_tables(tables)
+        filepath = os.path.join(output_dir, "tabelas.txt")
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write(output)
+        files_created.append(("tabelas.txt", len(tables), len(output)))
+    
+    # Arquivo de funções
+    if functions:
+        output = formatter._format_functions_section(functions)
+        filepath = os.path.join(output_dir, "funcoes.txt")
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write(output)
+        files_created.append(("funcoes.txt", len(functions), len(output)))
+    
+    # Arquivo de procedures
+    if procedures:
+        output = formatter._format_procedures_section(procedures)
+        filepath = os.path.join(output_dir, "procedures.txt")
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write(output)
+        files_created.append(("procedures.txt", len(procedures), len(output)))
+    
+    # Mostrar resultado
+    console.print()
+    result_table = RichTable(title="Arquivos Gerados por Tipo")
+    result_table.add_column("Arquivo", style="cyan")
+    result_table.add_column("Itens", justify="right", style="green")
+    result_table.add_column("Tamanho", justify="right", style="yellow")
+    
+    for filename, count, size in files_created:
+        result_table.add_row(filename, str(count), f"{size/1024:.1f} KB")
+    
+    console.print(result_table)
+    console.print(f"\n[green]Arquivos salvos em: {output_dir}[/green]")
+
+
+def convert_file_by_module():
+    """Converte arquivo gerando múltiplos arquivos por módulo (prefixo de tabela)."""
+    input_file = get_input_file()
+    if not input_file:
+        return
+    
+    # Pasta de saída
+    output_dir = Prompt.ask(
+        "[bold cyan]Pasta de saída[/bold cyan]",
+        default="output_por_modulo"
+    )
+    
+    os.makedirs(output_dir, exist_ok=True)
+    
+    console.print()
+    console.print("[bold yellow]═══ PROCESSANDO ═══[/bold yellow]")
+    console.print()
+    
+    # Parsear
+    parser = DumpParser(console)
+    tables = parser.parse_file(input_file)
+    
+    formatter = RagFormatter()
+    
+    # Agrupar tabelas por prefixo (módulo)
+    modules = {}
+    for table in tables.values():
+        # Extrair prefixo (2-3 primeiros caracteres antes de maiúscula ou underscore)
+        name = table.name.upper()
+        prefix = ""
+        
+        # Prefixos conhecidos
+        known_prefixes = {
+            "EF": "escrita_fiscal",
+            "CT": "contabil", 
+            "CTB": "contabil",
+            "FO": "folha",
+            "PT": "patrimonio",
+            "GE": "geral",
+            "AU": "auditoria",
+            "PR": "processos",
+            "HO": "honorarios",
+            "RE": "registro",
+            "TD": "tributos",
+            "IM": "imobilizado"
+        }
+        
+        # Tentar encontrar prefixo conhecido
+        for pref, mod_name in known_prefixes.items():
+            if name.startswith(pref):
+                prefix = mod_name
+                break
+        
+        if not prefix:
+            # Usar primeiros 2 caracteres como prefixo genérico
+            prefix = name[:2].lower() if len(name) >= 2 else "outros"
+        
+        if prefix not in modules:
+            modules[prefix] = {}
+        modules[prefix][table.full_name.lower()] = table
+    
+    files_created = []
+    
+    # Gerar arquivo por módulo
+    for module_name, module_tables in sorted(modules.items()):
+        output = formatter.format_tables(module_tables)
+        filename = f"{module_name}_tabelas.txt"
+        filepath = os.path.join(output_dir, filename)
+        
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write(output)
+        
+        files_created.append((filename, len(module_tables), len(output)))
+    
+    # Mostrar resultado
+    console.print()
+    result_table = RichTable(title="Arquivos Gerados por Módulo")
+    result_table.add_column("Arquivo", style="cyan")
+    result_table.add_column("Tabelas", justify="right", style="green")
+    result_table.add_column("Tamanho", justify="right", style="yellow")
+    
+    for filename, count, size in sorted(files_created):
+        result_table.add_row(filename, str(count), f"{size/1024:.1f} KB")
+    
+    console.print(result_table)
+    console.print(f"\n[green]Arquivos salvos em: {output_dir}[/green]")
 
 
 def show_file_stats():
@@ -776,14 +931,14 @@ def show_rag_config():
     config_text = """
 ## Configurações Recomendadas para Open Arena
 
-Após gerar o arquivo otimizado, configure sua chain com:
+Após gerar os arquivos otimizados, configure sua chain com:
 
-### RAG Settings
+### RAG Settings (BYOD)
 | Parâmetro | Valor |
 |-----------|-------|
-| Chunk Size | **4096** (máximo) |
-| Chunk Overlap | **15-20%** |
-| Size (top_k) | **25-30** |
+| Chunk Size | **512-1024** (recomendado pelo suporte) |
+| Chunk Overlap | **10-15%** |
+| Size (top_k) | **10-20** |
 
 ### Model Settings
 | Parâmetro | Valor |
@@ -791,10 +946,11 @@ Após gerar o arquivo otimizado, configure sua chain com:
 | Temperature | **0.2** |
 | Enable Reasoning | **On** |
 
-### Benefícios
-- Cada tabela cabe em 1-2 chunks
-- Contexto completo preservado
-- Respostas mais consistentes
+### Dicas
+- Use arquivos menores (por módulo) para melhor precisão
+- Formato UTF-8 é obrigatório
+- Arquivos de até 100MB cada
+- Teste após indexação
 """
     
     md = Markdown(config_text)
@@ -857,10 +1013,14 @@ def main():
         elif choice == "1":
             convert_file()
         elif choice == "2":
-            show_file_stats()
+            convert_file_by_type()
         elif choice == "3":
-            show_rag_config()
+            convert_file_by_module()
         elif choice == "4":
+            show_file_stats()
+        elif choice == "5":
+            show_rag_config()
+        elif choice == "6":
             show_help()
         
         console.print()
