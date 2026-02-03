@@ -56,7 +56,7 @@ class DumpParser:
         """Lê e parseia o arquivo de dump."""
         print(f"Lendo arquivo: {filepath}")
         
-        with open(filepath, 'r', encoding='latin-1') as f:
+        with open(filepath, 'r', encoding='windows-1252') as f:
             self.current_content = f.read()
         
         print(f"Tamanho do arquivo: {len(self.current_content):,} caracteres")
@@ -256,7 +256,7 @@ def main():
     parser.add_argument('input_file', help='Arquivo de dump de entrada')
     parser.add_argument('output_file', help='Arquivo de saída otimizado')
     parser.add_argument('--schema', help='Filtrar por schema específico', default=None)
-    parser.add_argument('--encoding', help='Encoding do arquivo de entrada', default='latin-1')
+    parser.add_argument('--encoding', help='Encoding do arquivo de entrada', default='windows-1252')
     
     args = parser.parse_args()
     
@@ -282,9 +282,9 @@ def main():
     formatter = RagFormatter()
     output = formatter.format_tables(tables)
     
-    # Salvar arquivo
+    # Salvar arquivo (ANSI/Windows-1252 para compatibilidade)
     output_path = Path(args.output_file)
-    with open(output_path, 'w', encoding='utf-8') as f:
+    with open(output_path, 'w', encoding='windows-1252') as f:
         f.write(output)
     
     print(f"\nArquivo gerado: {args.output_file}")

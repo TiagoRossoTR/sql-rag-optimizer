@@ -96,7 +96,7 @@ class DumpParser:
             # Ler arquivo
             task1 = progress.add_task("[cyan]Lendo arquivo...", total=100)
             
-            with open(filepath, 'r', encoding='latin-1') as f:
+            with open(filepath, 'r', encoding='windows-1252') as f:
                 self.current_content = f.read()
             
             progress.update(task1, completed=100)
@@ -399,8 +399,8 @@ def convert_file():
     formatter = RagFormatter()
     output = formatter.format_tables(tables)
     
-    # Salvar
-    with open(output_file, 'w', encoding='utf-8') as f:
+    # Salvar (ANSI/Windows-1252 para compatibilidade)
+    with open(output_file, 'w', encoding='windows-1252') as f:
         f.write(output)
     
     # Estatísticas
@@ -411,7 +411,7 @@ def convert_file():
 def show_result_stats(input_file: str, output_file: str, tables: dict, output: str):
     """Exibe estatísticas do resultado."""
     input_size = os.path.getsize(input_file) / (1024 * 1024)
-    output_size = len(output.encode('utf-8')) / (1024 * 1024)
+    output_size = len(output.encode('windows-1252', errors='replace')) / (1024 * 1024)
     reduction = (1 - output_size / input_size) * 100 if input_size > 0 else 0
     
     stats_table = Table.grid(padding=1)
