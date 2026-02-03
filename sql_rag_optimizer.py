@@ -57,12 +57,69 @@ class Column:
 
 
 @dataclass
+class ForeignKey:
+    """Representa uma foreign key."""
+    name: str
+    table_schema: str
+    table_name: str
+    columns: List[str]
+    ref_schema: str
+    ref_table: str
+    ref_columns: List[str]
+    
+    @property
+    def full_table_name(self) -> str:
+        return f"{self.table_schema}.{self.table_name}"
+
+
+@dataclass
+class Index:
+    """Representa um índice."""
+    name: str
+    table_schema: str
+    table_name: str
+    columns: List[str]
+    is_unique: bool = False
+    
+    @property
+    def full_table_name(self) -> str:
+        return f"{self.table_schema}.{self.table_name}"
+
+
+@dataclass
+class Function:
+    """Representa uma função."""
+    schema: str
+    name: str
+    parameters: str
+    return_type: str
+    
+    @property
+    def full_name(self) -> str:
+        return f"{self.schema}.{self.name}"
+
+
+@dataclass
+class Procedure:
+    """Representa uma procedure."""
+    schema: str
+    name: str
+    parameters: str
+    
+    @property
+    def full_name(self) -> str:
+        return f"{self.schema}.{self.name}"
+
+
+@dataclass
 class DatabaseTable:
     """Representa uma tabela do banco de dados."""
     schema: str
     name: str
     columns: List[Column] = field(default_factory=list)
     primary_key: List[str] = field(default_factory=list)
+    foreign_keys: List[ForeignKey] = field(default_factory=list)
+    indexes: List[Index] = field(default_factory=list)
     comment: str = ""
     
     @property
@@ -79,6 +136,8 @@ class DumpParser:
     
     def __init__(self, console: Console):
         self.tables: Dict[str, DatabaseTable] = {}
+        self.functions: Dict[str, Function] = {}
+        self.procedures: Dict[str, Procedure] = {}
         self.current_content = ""
         self.console = console
         
@@ -110,6 +169,26 @@ class DumpParser:
             task3 = progress.add_task("[cyan]Extraindo comentários...", total=100)
             self._parse_comments()
             progress.update(task3, completed=100)
+            
+            # Extrair Foreign Keys
+            task4 = progress.add_task("[cyan]Extraindo foreign keys...", total=100)
+            self._parse_foreign_keys()
+            progress.update(task4, completed=100)
+            
+            # Extrair Índices
+            task5 = progress.add_task("[cyan]Extraindo índices...", total=100)
+            self._parse_indexes()
+            progress.update(task5, completed=100)
+            
+            # Extrair Funções
+            task6 = progress.add_task("[cyan]Extraindo funções...", total=100)
+            self._parse_functions()
+            progress.update(task6, completed=100)
+            
+            # Extrair Procedures
+            task7 = progress.add_task("[cyan]Extraindo procedures...", total=100)
+            self._parse_procedures()
+            progress.update(task7, completed=100)
         
         return self.tables
     
@@ -214,6 +293,115 @@ class DumpParser:
                     if col.name.lower() == col_name.lower():
                         col.comment = comment
                         break
+    
+    def _parse_foreign_keys(self):
+        """Extrai FOREIGN KEYs."""
+        # ALTER TABLE "schema"."table" ADD FOREIGN KEY "name" (cols) REFERENCES "schema"."table" (cols)
+        pattern = r'ALTER\s+TABLE\s+"([^"]+)"\."([^"]+)"\s+ADD\s+FOREIGN\s+KEY\s+"([^"]+)"\s*\(([^)]+)\)\s*REFERENCES\s+"([^"]+)"\."([^"]+)"\s*\(([^)]+)\)'
+        
+        for match in re.finditer(pattern, self.current_content, re.IGNORECASE):
+            schema, table_name, fk_name, columns, ref_schema, ref_table, ref_columns = match.groups()
+            
+            # Limpar nomes de colunas
+            cols = [c.strip().strip('"').replace(' ASC', '').replace(' DESC', '') for c in columns.split(',')]
+            ref_cols = [c.strip().strip('"').replace(' ASC', '').replace(' DESC', '') for c in ref_columns.split(',')]
+            
+            fk = ForeignKey(
+                name=fk_name,
+                table_schema=schema,
+                table_name=table_name,
+                columns=cols,
+                ref_schema=ref_schema,
+                ref_table=ref_table,
+                ref_columns=ref_cols
+            )
+            
+            # Adicionar à tabela correspondente
+            full_name = f"{schema}.{table_name}".lower()
+            if full_name in self.tables:
+                self.tables[full_name].foreign_keys.append(fk)
+    
+    def _parse_indexes(self):
+        """Extrai índices."""
+        # CREATE [UNIQUE] INDEX "name" ON "schema"."table" (cols)
+        pattern = r'CREATE\s+(UNIQUE\s+)?INDEX\s+"([^"]+)"\s+ON\s+"([^"]+)"\."([^"]+)"\s*\(([^)]+)\)'
+        
+        for match in re.finditer(pattern, self.current_content, re.IGNORECASE):
+            unique, idx_name, schema, table_name, columns = match.groups()
+            
+            # Limpar nomes de colunas
+            cols = [c.strip().strip('"').replace(' ASC', '').replace(' DESC', '') for c in columns.split(',')]
+            
+            idx = Index(
+                name=idx_name,
+                table_schema=schema,
+                table_name=table_name,
+                columns=cols,
+                is_unique=bool(unique)
+            )
+            
+            # Adicionar à tabela correspondente
+            full_name = f"{schema}.{table_name}".lower()
+            if full_name in self.tables:
+                self.tables[full_name].indexes.append(idx)
+    
+    def _parse_functions(self):
+        """Extrai funções."""
+        # create function "schema"."name"(params) returns type
+        pattern = r'create\s+function\s+"([^"]+)"\."([^"]+)"\s*\(([^)]*)\)\s*returns\s+(\w+)'
+        
+        for match in re.finditer(pattern, self.current_content, re.IGNORECASE):
+            schema, func_name, params, return_type = match.groups()
+            
+            # Simplificar parâmetros
+            params_clean = self._simplify_params(params)
+            
+            func = Function(
+                schema=schema,
+                name=func_name,
+                parameters=params_clean,
+                return_type=return_type
+            )
+            
+            self.functions[func.full_name.lower()] = func
+    
+    def _parse_procedures(self):
+        """Extrai procedures."""
+        # create procedure "schema"."name"(params)
+        pattern = r'create\s+procedure\s+"([^"]+)"\."([^"]+)"\s*\(([^)]*)\)'
+        
+        for match in re.finditer(pattern, self.current_content, re.IGNORECASE):
+            schema, proc_name, params = match.groups()
+            
+            # Simplificar parâmetros
+            params_clean = self._simplify_params(params)
+            
+            proc = Procedure(
+                schema=schema,
+                name=proc_name,
+                parameters=params_clean
+            )
+            
+            self.procedures[proc.full_name.lower()] = proc
+    
+    def _simplify_params(self, params: str) -> str:
+        """Simplifica lista de parâmetros."""
+        if not params.strip():
+            return ""
+        
+        result = []
+        # Quebrar por vírgula (cuidando com defaults)
+        parts = params.split(',')
+        for part in parts:
+            part = part.strip()
+            # Extrair: in/out "nome" tipo
+            match = re.match(r'(in|out|inout)?\s*"?(\w+)"?\s+(\w+)', part, re.IGNORECASE)
+            if match:
+                direction, name, ptype = match.groups()
+                direction = direction or "in"
+                result.append(f"{direction} {name} {ptype}")
+        
+        return ", ".join(result)
 
 
 # ============================================================================
@@ -226,8 +414,29 @@ class RagFormatter:
     SEPARATOR = "=" * 80
     SUBSEPARATOR = "-" * 80
     
+    def format_all(self, tables: Dict[str, DatabaseTable], 
+                   functions: Dict[str, Function], 
+                   procedures: Dict[str, Procedure]) -> str:
+        """Formata tudo para output RAG."""
+        output_parts = []
+        
+        # Tabelas
+        sorted_tables = sorted(tables.values(), key=lambda t: t.full_name)
+        for table in sorted_tables:
+            output_parts.append(self._format_table(table))
+        
+        # Funções
+        if functions:
+            output_parts.append(self._format_functions_section(functions))
+        
+        # Procedures
+        if procedures:
+            output_parts.append(self._format_procedures_section(procedures))
+        
+        return "\n".join(output_parts)
+    
     def format_tables(self, tables: Dict[str, DatabaseTable]) -> str:
-        """Formata todas as tabelas para output RAG."""
+        """Formata todas as tabelas para output RAG (compatibilidade)."""
         output_parts = []
         sorted_tables = sorted(tables.values(), key=lambda t: t.full_name)
         
@@ -257,6 +466,23 @@ class RagFormatter:
             lines.append("")
             lines.append(f"CHAVE PRIMÁRIA: ({', '.join(table.primary_key)})")
         
+        # Foreign Keys
+        if table.foreign_keys:
+            lines.append("")
+            lines.append("FOREIGN KEYS:")
+            for fk in table.foreign_keys:
+                fk_line = f"- {fk.name}: ({', '.join(fk.columns)}) -> {fk.ref_schema}.{fk.ref_table}({', '.join(fk.ref_columns)})"
+                lines.append(fk_line)
+        
+        # Índices
+        if table.indexes:
+            lines.append("")
+            lines.append("ÍNDICES:")
+            for idx in table.indexes:
+                unique_str = "UNIQUE " if idx.is_unique else ""
+                idx_line = f"- {idx.name}: {unique_str}({', '.join(idx.columns)})"
+                lines.append(idx_line)
+        
         lines.append(self.SEPARATOR)
         lines.append("")
         
@@ -280,6 +506,38 @@ class RagFormatter:
             parts.append(f"- {col.comment}")
         
         return " ".join(parts)
+    
+    def _format_functions_section(self, functions: Dict[str, Function]) -> str:
+        """Formata seção de funções."""
+        lines = [
+            self.SEPARATOR,
+            "FUNÇÕES DO BANCO DE DADOS",
+            self.SUBSEPARATOR,
+        ]
+        
+        for func in sorted(functions.values(), key=lambda f: f.full_name):
+            lines.append(f"- {func.full_name}({func.parameters}) -> {func.return_type}")
+        
+        lines.append(self.SEPARATOR)
+        lines.append("")
+        
+        return "\n".join(lines)
+    
+    def _format_procedures_section(self, procedures: Dict[str, Procedure]) -> str:
+        """Formata seção de procedures."""
+        lines = [
+            self.SEPARATOR,
+            "PROCEDURES DO BANCO DE DADOS",
+            self.SUBSEPARATOR,
+        ]
+        
+        for proc in sorted(procedures.values(), key=lambda p: p.full_name):
+            lines.append(f"- {proc.full_name}({proc.parameters})")
+        
+        lines.append(self.SEPARATOR)
+        lines.append("")
+        
+        return "\n".join(lines)
 
 
 # ============================================================================
@@ -390,14 +648,18 @@ def convert_file():
     # Parsear
     parser = DumpParser(console)
     tables = parser.parse_file(input_file)
+    functions = parser.functions
+    procedures = parser.procedures
     
-    # Filtrar
+    # Filtrar por schema
     if filter_schema:
         tables = {k: v for k, v in tables.items() if v.schema.lower() == filter_schema.lower()}
+        functions = {k: v for k, v in functions.items() if v.schema.lower() == filter_schema.lower()}
+        procedures = {k: v for k, v in procedures.items() if v.schema.lower() == filter_schema.lower()}
     
     # Formatar
     formatter = RagFormatter()
-    output = formatter.format_tables(tables)
+    output = formatter.format_all(tables, functions, procedures)
     
     # Salvar (ANSI/Windows-1252 para compatibilidade)
     with open(output_file, 'w', encoding='windows-1252') as f:
@@ -405,10 +667,10 @@ def convert_file():
     
     # Estatísticas
     console.print()
-    show_result_stats(input_file, output_file, tables, output)
+    show_result_stats(input_file, output_file, tables, functions, procedures, output)
 
 
-def show_result_stats(input_file: str, output_file: str, tables: dict, output: str):
+def show_result_stats(input_file: str, output_file: str, tables: dict, functions: dict, procedures: dict, output: str):
     """Exibe estatísticas do resultado."""
     input_size = os.path.getsize(input_file) / (1024 * 1024)
     output_size = len(output.encode('windows-1252', errors='replace')) / (1024 * 1024)
@@ -423,10 +685,20 @@ def show_result_stats(input_file: str, output_file: str, tables: dict, output: s
     stats_table.add_row("📊 Tamanho entrada:", f"{input_size:.2f} MB")
     stats_table.add_row("📊 Tamanho saída:", f"{output_size:.2f} MB")
     stats_table.add_row("📉 Redução:", f"{reduction:.1f}%")
-    stats_table.add_row("📋 Tabelas extraídas:", str(len(tables)))
+    stats_table.add_row("", "")
+    stats_table.add_row("📋 Tabelas:", str(len(tables)))
     
     total_cols = sum(len(t.columns) for t in tables.values())
-    stats_table.add_row("📋 Colunas totais:", str(total_cols))
+    stats_table.add_row("📋 Colunas:", str(total_cols))
+    
+    total_fks = sum(len(t.foreign_keys) for t in tables.values())
+    stats_table.add_row("🔗 Foreign Keys:", str(total_fks))
+    
+    total_idx = sum(len(t.indexes) for t in tables.values())
+    stats_table.add_row("📇 Índices:", str(total_idx))
+    
+    stats_table.add_row("⚡ Funções:", str(len(functions)))
+    stats_table.add_row("📦 Procedures:", str(len(procedures)))
     
     panel = Panel(
         stats_table,
@@ -448,25 +720,53 @@ def show_file_stats():
     
     parser = DumpParser(console)
     tables = parser.parse_file(input_file)
+    functions = parser.functions
+    procedures = parser.procedures
     
-    # Estatísticas por schema
+    # Estatísticas por schema (tabelas)
     schemas = {}
     for table in tables.values():
         if table.schema not in schemas:
-            schemas[table.schema] = 0
-        schemas[table.schema] += 1
+            schemas[table.schema] = {"tabelas": 0, "fks": 0, "idx": 0}
+        schemas[table.schema]["tabelas"] += 1
+        schemas[table.schema]["fks"] += len(table.foreign_keys)
+        schemas[table.schema]["idx"] += len(table.indexes)
     
     console.print()
-    stats_table = RichTable(title="Estatísticas do Arquivo")
+    
+    # Tabela de schemas
+    stats_table = RichTable(title="Tabelas por Schema")
     stats_table.add_column("Schema", style="cyan")
     stats_table.add_column("Tabelas", justify="right", style="green")
+    stats_table.add_column("FKs", justify="right", style="yellow")
+    stats_table.add_column("Índices", justify="right", style="blue")
     
-    for schema, count in sorted(schemas.items()):
-        stats_table.add_row(schema, str(count))
+    total_tables = 0
+    total_fks = 0
+    total_idx = 0
     
-    stats_table.add_row("[bold]TOTAL[/bold]", f"[bold]{len(tables)}[/bold]")
+    for schema, counts in sorted(schemas.items()):
+        stats_table.add_row(schema, str(counts["tabelas"]), str(counts["fks"]), str(counts["idx"]))
+        total_tables += counts["tabelas"]
+        total_fks += counts["fks"]
+        total_idx += counts["idx"]
+    
+    stats_table.add_row("[bold]TOTAL[/bold]", f"[bold]{total_tables}[/bold]", 
+                        f"[bold]{total_fks}[/bold]", f"[bold]{total_idx}[/bold]")
     
     console.print(stats_table)
+    
+    # Resumo geral
+    console.print()
+    summary = RichTable.grid(padding=1)
+    summary.add_column(style="cyan", justify="right")
+    summary.add_column(style="white")
+    
+    summary.add_row("⚡ Funções encontradas:", str(len(functions)))
+    summary.add_row("📦 Procedures encontradas:", str(len(procedures)))
+    
+    panel = Panel(summary, title="[bold cyan]Objetos Programáveis[/bold cyan]", border_style="cyan")
+    console.print(panel)
 
 
 def show_rag_config():
