@@ -20,7 +20,7 @@ try:
     from rich.console import Console
     from rich.panel import Panel
     from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
-    from rich.table import Table
+    from rich.table import Table as RichTable
     from rich.prompt import Prompt, Confirm
     from rich.text import Text
     from rich import print as rprint
@@ -32,7 +32,7 @@ except ImportError:
     from rich.console import Console
     from rich.panel import Panel
     from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
-    from rich.table import Table
+    from rich.table import Table as RichTable
     from rich.prompt import Prompt, Confirm
     from rich.text import Text
     from rich import print as rprint
@@ -57,7 +57,7 @@ class Column:
 
 
 @dataclass
-class Table:
+class DatabaseTable:
     """Representa uma tabela do banco de dados."""
     schema: str
     name: str
@@ -78,11 +78,11 @@ class DumpParser:
     """Parser para arquivos de dump do SQL Anywhere."""
     
     def __init__(self, console: Console):
-        self.tables: Dict[str, Table] = {}
+        self.tables: Dict[str, DatabaseTable] = {}
         self.current_content = ""
         self.console = console
         
-    def parse_file(self, filepath: str) -> Dict[str, Table]:
+    def parse_file(self, filepath: str) -> Dict[str, DatabaseTable]:
         """Lê e parseia o arquivo de dump."""
         
         with Progress(
@@ -120,11 +120,11 @@ class DumpParser:
         matches = re.findall(pattern, self.current_content, re.DOTALL | re.IGNORECASE)
         
         for schema, table_name, columns_def in matches:
-            table = Table(schema=schema, name=table_name)
+            table = DatabaseTable(schema=schema, name=table_name)
             self._parse_columns(table, columns_def)
             self.tables[table.full_name.lower()] = table
     
-    def _parse_columns(self, table: Table, columns_def: str):
+    def _parse_columns(self, table: DatabaseTable, columns_def: str):
         """Extrai definições de colunas."""
         lines = self._split_columns(columns_def)
         
@@ -226,7 +226,7 @@ class RagFormatter:
     SEPARATOR = "=" * 80
     SUBSEPARATOR = "-" * 80
     
-    def format_tables(self, tables: Dict[str, Table]) -> str:
+    def format_tables(self, tables: Dict[str, DatabaseTable]) -> str:
         """Formata todas as tabelas para output RAG."""
         output_parts = []
         sorted_tables = sorted(tables.values(), key=lambda t: t.full_name)
@@ -236,7 +236,7 @@ class RagFormatter:
         
         return "\n".join(output_parts)
     
-    def _format_table(self, table: Table) -> str:
+    def _format_table(self, table: DatabaseTable) -> str:
         """Formata uma única tabela."""
         lines = [
             self.SEPARATOR,
@@ -414,7 +414,7 @@ def show_result_stats(input_file: str, output_file: str, tables: dict, output: s
     output_size = len(output.encode('windows-1252', errors='replace')) / (1024 * 1024)
     reduction = (1 - output_size / input_size) * 100 if input_size > 0 else 0
     
-    stats_table = Table.grid(padding=1)
+    stats_table = RichTable.grid(padding=1)
     stats_table.add_column(style="cyan", justify="right")
     stats_table.add_column(style="white")
     
@@ -457,7 +457,7 @@ def show_file_stats():
         schemas[table.schema] += 1
     
     console.print()
-    stats_table = Table(title="Estatísticas do Arquivo")
+    stats_table = RichTable(title="Estatísticas do Arquivo")
     stats_table.add_column("Schema", style="cyan")
     stats_table.add_column("Tabelas", justify="right", style="green")
     
